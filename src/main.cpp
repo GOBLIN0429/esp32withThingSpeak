@@ -56,20 +56,21 @@ void checkWiFiStatus();
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("hello world");
   Serial2.begin(9600);
-  connectToWiFi();
+  while(WiFi.status() != WL_CONNECTED){
+    connectToWiFi();
+  }
   ThingSpeak.begin(client);
+  delay(2000);
 }
 
 void loop() {
-  if(WiFi.status() != WL_CONNECTED){
+  while(WiFi.status() != WL_CONNECTED){
     connectToWiFi();
   }
   // 从串口读取数据
-  while (Serial2.available() > 0&& WiFi.status() == WL_CONNECTED) {
+  while(Serial2.available() > 0&& WiFi.status() == WL_CONNECTED) {
     byte receivedByte = Serial2.read();
-    Serial2.println(receivedByte);
     readMyPack(receivedByte);
 
     //读取数据求和，大于一定次数求平均上传ThingSpeak
@@ -112,34 +113,40 @@ void loop() {
         ThingSpeak.setField(6, average_data.fst2);
         ThingSpeak.setField(7, average_data.fst3);
 
-        Serial.printf("data send!");
+        //检测是否上报成功
+        int statusCode = ThingSpeak.writeFields(CHANNEL_ID, CHANNEL_API_KEY);
 
+        if (statusCode == 200) {  // 状态码 200 表示成功
+          Serial.println("data upload success!");
+          Serial.print("temperature:");
+          Serial.println(average_data.temp);
+          Serial.print("humidity:");
+          Serial.println(average_data.humi);
+          Serial.print("windspeed:");
+          Serial.println(average_data.windSpeed);
+          Serial.print("lightintensity:");
+          Serial.println(average_data.lightIntensity);
+          Serial.print("fst1,fst2,fst3:");
+          Serial.println(average_data.fst);
+          Serial.println(average_data.fst2);
+          Serial.println(average_data.fst3);
+        } else {
+          Serial.print("failed to upload data, this is the error code:");
+          Serial.println(statusCode);
+          return;
+        }
         //将sum_data结构体初始化为0
         memset(&sum_data, 0, sizeof(sum_data));
 
         sum_count = 0;
-
-        /* Serial.print("Data sent: ");
-        Serial.print("Temp: ");
-        Serial.print(data_temp);
-        Serial.print(", Humi: ");
-        Serial.print(data_humi);
-        Serial.print(", WindSpeed: ");
-        Serial.print(data_windSpeed);
-        Serial.print(", LightIntensity: ");
-        Serial.print(data_lightIntensity);
-        Serial.print(", fst: ");
-        Serial.println(data_fst);
-        Serial.print(", fst2: ");
-        Serial.println(data_fst2);
-        Serial.print(", fst3: ");
-        Serial.println(data_fst3); */
       }
 
       // 重置数据包接收标志
       dataPacketReceived_flag = false;
     }
   }
+
+  delay(10);
 }
 
 void connectToWiFi(){
@@ -157,8 +164,6 @@ void connectToWiFi(){
   if(WiFi.status() != WL_CONNECTED){
     Serial.printf("Failed to connect WiFi, checking reason....");
     checkWiFiStatus();
-    Serial.printf("restarting esp32.....");
-    ESP.restart();
   }else{
     Serial.printf("Connected!");
     Serial.println(WiFi.localIP());
@@ -176,7 +181,6 @@ void readMyPack(byte receivedByte)
     case WaitingForHeader1:
       if(receivedByte == 0xFF){
         currentState = ReadingData;//改变状态
-        checkSum = receivedByte;
         buffer = "";//清空buffer，为接下来读取数据做准备
         Serial.println("Header Found!");
       }
@@ -184,7 +188,6 @@ void readMyPack(byte receivedByte)
     
     case ReadingData:
       buffer += (char)receivedByte;
-      checkSum += receivedByte;
 
       if(buffer.length() >= dataLength)
       {
